@@ -273,6 +273,20 @@ function computeSize(
       }
     }
   }
+  if (category === "camisas" && cut === "slim") {
+    const slimIndex = clamp(roundedIndex + 1, 0, TOP_SIZES.length - 1);
+    sizeLabel = TOP_SIZES[slimIndex];
+    if (range) {
+      const [start, end] = range.split(" - ");
+      const startIndex = TOP_SIZES.indexOf(start as (typeof TOP_SIZES)[number]);
+      const endIndex = TOP_SIZES.indexOf(end as (typeof TOP_SIZES)[number]);
+      if (startIndex >= 0 && endIndex >= 0) {
+        const shiftedStart = TOP_SIZES[clamp(startIndex + 1, 0, TOP_SIZES.length - 1)];
+        const shiftedEnd = TOP_SIZES[clamp(endIndex + 1, 0, TOP_SIZES.length - 1)];
+        range = shiftedStart === shiftedEnd ? undefined : `${shiftedStart} - ${shiftedEnd}`;
+      }
+    }
+  }
 
   // Nota resumen para mostrar al usuario.
   const categoryLabel =
