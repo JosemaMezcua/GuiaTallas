@@ -6,8 +6,10 @@ import type { FormEvent } from "react";
 // ===========================
 // Datos base y tablas de talla
 // ===========================
-// Tallas base para prendas superiores.
-const TOP_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"] as const;
+// Tallas base para prendas superiores (general).
+const TOP_SIZES_GENERAL = ["XS", "S", "M", "L", "XL", "2XL", "3XL"] as const;
+// Tallas base para camisas (segun tabla).
+const TOP_SIZES_SHIRTS = ["S", "M", "L", "XL", "2XL", "3XL"] as const;
 // Tallas numericas para pantalon regular (de 2 en 2).
 const PANT_SIZES_REGULAR = [36, 38, 40, 42, 44, 46, 48, 50] as const;
 // Tallas numericas para pantalon slim (de 2 en 2).
@@ -224,41 +226,83 @@ function computeSize(
   else if (bmi < 25) baseIndex = 2;
   else if (bmi < 28) baseIndex = 3;
   else if (bmi < 31) baseIndex = 4;
-  else baseIndex = 5;
+  else if (bmi < 35) baseIndex = 5;
+  else baseIndex = 6;
 
   let heightAdjust = 0;
   if (heightCm >= 185) heightAdjust = 1;
   if (heightCm <= 160) heightAdjust = -1;
 
   // Ajuste final con fit y altura.
+  const fitExtra = fit === "holgado" ? + 1 : fit === "ajustado" ? -1 : 0;
   const indexFloat =
-    baseIndex + heightAdjust + fitAdjust[fit];
+    baseIndex + heightAdjust + fitExtra;
+  const sizeScale: string[] =
+    category === "camisas"
+      ? Array.from(TOP_SIZES_SHIRTS)
+      : Array.from(TOP_SIZES_GENERAL);
   const roundedIndex = clamp(
     Math.round(indexFloat),
     0,
-    TOP_SIZES.length - 1
+    sizeScale.length - 1
   );
 
+  // Helper local para desplazar rangos de talla.
+  function shiftRangeValue(
+    rangeValue: string | undefined,
+    delta: number,
+    scale: string[],
+    minIndex = 0
+  ) {
+    if (!rangeValue) return rangeValue;
+    const [start, end] = rangeValue.split(" - ");
+    const startIndex = scale.indexOf(start);
+    const endIndex = scale.indexOf(end);
+    if (startIndex < 0 || endIndex < 0) return rangeValue;
+    const shiftedStart = scale[clamp(startIndex + delta, minIndex, scale.length - 1)];
+    const shiftedEnd = scale[clamp(endIndex + delta, minIndex, scale.length - 1)];
+    return shiftedStart === shiftedEnd ? undefined : `${shiftedStart} - ${shiftedEnd}`;
+  }
+
   // Talla sugerida y rango aproximado si queda entre dos.
-  let sizeLabel: string = TOP_SIZES[roundedIndex];
+  let sizeIndex = roundedIndex;
+  let sizeLabel: string = sizeScale[sizeIndex];
   let range: string | undefined;
   if (Math.abs(indexFloat - roundedIndex) > 0.35) {
-    const lower = clamp(Math.floor(indexFloat), 0, TOP_SIZES.length - 1);
-    const upper = clamp(Math.ceil(indexFloat), 0, TOP_SIZES.length - 1);
+    const lower = clamp(Math.floor(indexFloat), 0, sizeScale.length - 1);
+    const upper = clamp(Math.ceil(indexFloat), 0, sizeScale.length - 1);
     if (lower !== upper) {
-      range = `${TOP_SIZES[lower]} - ${TOP_SIZES[upper]}`;
+      range = `${sizeScale[lower]} - ${sizeScale[upper]}`;
     }
+  }
+  if (category === "camisas") {
+    const camisasAdjust = cut === "slim" ? 0 : -1;
+    sizeIndex = clamp(sizeIndex + camisasAdjust, 0, sizeScale.length - 1);
+    sizeLabel = sizeScale[sizeIndex];
+    range = shiftRangeValue(range, camisasAdjust, sizeScale);
+  }
+  if (category !== "pantalones") {
+    const minIndex = sizeScale[0] === "XS" ? 1 : 0;
+    const lowProfile = bmi < 20 || weightKg < 55 || heightCm < 165;
+    if (lowProfile) {
+      sizeIndex = clamp(sizeIndex - 1, minIndex, sizeScale.length - 1);
+      sizeLabel = sizeScale[sizeIndex];
+      range = shiftRangeValue(range, -1, sizeScale, minIndex);
+    }
+  }
+  if (category !== "pantalones" && weightKg >= 130) {
+    sizeIndex = Math.max(sizeIndex, sizeScale.length - 1);
+    sizeLabel = sizeScale[sizeIndex];
+    range = undefined;
   }
   if (category === "pantalones") {
     // Para pantalones se usa tabla y rangos de IMC dedicados.
     const basePantIndex =
       PANT_BMI_RANGES.find((range) => bmi < range.max)?.index ?? 7;
-    const pantSizes: number[] =
-      cut === "slim"
-        ? Array.from(PANT_SIZES_SLIM)
-        : Array.from(PANT_SIZES_REGULAR);
+    const pantSizes: number[] = Array.from(PANT_SIZES_REGULAR);
+    const pantAdjust = -1;
     const pantIndexFloat =
-      basePantIndex + heightAdjust + fitAdjust[fit];
+      basePantIndex + heightAdjust + fitExtra + pantAdjust;
     let pantIndex = clamp(
       Math.round(pantIndexFloat),
       0,
@@ -273,20 +317,7 @@ function computeSize(
       }
     }
   }
-  if (category === "camisas" && cut === "slim") {
-    const slimIndex = clamp(roundedIndex + 1, 0, TOP_SIZES.length - 1);
-    sizeLabel = TOP_SIZES[slimIndex];
-    if (range) {
-      const [start, end] = range.split(" - ");
-      const startIndex = TOP_SIZES.indexOf(start as (typeof TOP_SIZES)[number]);
-      const endIndex = TOP_SIZES.indexOf(end as (typeof TOP_SIZES)[number]);
-      if (startIndex >= 0 && endIndex >= 0) {
-        const shiftedStart = TOP_SIZES[clamp(startIndex + 1, 0, TOP_SIZES.length - 1)];
-        const shiftedEnd = TOP_SIZES[clamp(endIndex + 1, 0, TOP_SIZES.length - 1)];
-        range = shiftedStart === shiftedEnd ? undefined : `${shiftedStart} - ${shiftedEnd}`;
-      }
-    }
-  }
+  // El ajuste de camisas se aplica arriba (regular -2, slim -1).
 
   // Nota resumen para mostrar al usuario.
   const categoryLabel =
